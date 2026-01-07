@@ -1,14 +1,17 @@
-# Satellite Imagery Based Property Valuation (Hybrid Model)
+# Satellite Imagery Based Property Valuation
 
-This project trains a hybrid deep learning regression model using:
-- **Tabular features** from Excel (bedrooms, bathrooms, sqft, condition, grade, etc.)
-- **Satellite images** fetched using **lat/long** via an API (Mapbox or Google Static Maps)
+A machine learning project that predicts property prices using:
+- **Tabular features** (bedrooms, bathrooms, sqft, condition, grade, etc.)
+- **Satellite imagery** (fetched via Mapbox/Google Static Maps API)
 
-The model uses:
-- **ResNet18 (pretrained)** to extract image embeddings
-- **MLP** for tabular features
-- Concatenation of both -> final regression head -> **price** prediction
-- **Grad-CAM** for model explainability
+## Models
+
+1. **XGBoost** - Gradient boosting on tabular features (primary model for predictions)
+2. **Hybrid CNN+Tabular** - Frozen ResNet18 + MLP fusion model
+
+## Evaluation Metrics
+- **RMSE** (Root Mean Squared Error)
+- **R²** (Coefficient of Determination)
 
 ---
 
@@ -16,85 +19,171 @@ The model uses:
 
 ```
 satellite_property_valuation/
+├── kaggle_notebook.ipynb             # Main Kaggle notebook
+├── colab_notebook.ipynb              # Google Colab version
 ├── src/
-│   ├── hybrid_property_valuation.py  # Main training + prediction pipeline
-│   └── data_fetcher.py               # Script to download satellite images from API
+│   ├── hybrid_property_valuation.py  # Standalone Python training script
+│   └── data_fetcher.py               # Satellite image fetching utility
 ├── notebooks/
-│   ├── preprocessing.ipynb           # Data cleaning and feature engineering
-│   └── model_training.ipynb          # Training loop for the multimodal model
-├── data/                             # Put your Excel files here
-├── image_cache/                      # Cached satellite images (auto-created)
+│   ├── preprocessing.ipynb           # Data exploration & preprocessing
+│   └── model_training.ipynb          # Model training notebook
+├── data/
+│   ├── train.xlsx                    # Training data
+│   ├── test.xlsx                     # Test data
+│   └── mapbox_images/                # Satellite images (img_{id}.png)
 ├── outputs/
-│   └── predictions.csv               # Model predictions (id, predicted_price)
+│   ├── predictions.csv               # Final predictions
+│   ├── xgb_model.joblib              # Saved XGBoost model
+│   └── hybrid_model.pth              # Saved Hybrid model
 ├── requirements.txt
 └── README.md
 ```
 
 ---
 
-## Inputs
+## Data Requirements
 
-### Required train columns
-- `price` (target)
-- `lat`, `long` (for images)
-- plus any numeric tabular columns (e.g., bedrooms, bathrooms, sqft_living, grade, condition, etc.)
+### Train columns
+| Column | Description |
+|--------|-------------|
+| `id` | Unique identifier |
+| `price` | Target variable |
+| `lat`, `long` | Coordinates for satellite images |
+| numeric features | bedrooms, bathrooms, sqft_living, grade, condition, etc. |
 
-### Required test columns
-- `lat`, `long`
-- same tabular feature columns as train **excluding** `price`
+### Test columns
+Same as train **excluding** `price`
 
 ---
 
 ## Setup
 
-### 1) Install dependencies
+### 1. Install dependencies
 ```bash
 pip install -r requirements.txt
 ```
 
-### 2) Put your data files
-Place your datasets in `data/` and rename:
-- `train(1).xlsx` -> `data/train.xlsx`
-- `test2.xlsx` -> `data/test.xlsx`
+### 2. Prepare data
+Place your Excel files in `data/`:
+- `data/train.xlsx`
+- `data/test.xlsx`
 
-(Or edit the paths at the top of `src/hybrid_property_valuation.py`)
+### 3. Fetch satellite images
 
-### 3) Set an API key (choose one)
-
-#### Option A: Mapbox (recommended)
+#### Option A: Using data_fetcher.py
 ```bash
-export MAPBOX_TOKEN="YOUR_TOKEN"
-```
-Default provider is Mapbox.
+# Set API key
+export MAPBOX_TOKEN="your_mapbox_token"
+# OR
+export GOOGLE_MAPS_KEY="your_google_key"
 
-#### Option B: Google Static Maps
-```bash
-export GOOGLE_MAPS_KEY="YOUR_KEY"
+# Run fetcher
+python src/data_fetcher.py
 ```
-Then set `provider="google"` in the Config.
 
-### 4) Run training + prediction
+#### Option B: Manual download
+Place satellite images in `data/mapbox_images/` with naming format: `img_{id}.png`
+
+### 4. Run training
+
+#### Using Python script
 ```bash
 python src/hybrid_property_valuation.py
 ```
+
+#### Using Jupyter notebook
+```bash
+jupyter notebook notebooks/model_training.ipynb
+```
+
+#### Using Kaggle/Colab
+Upload `kaggle_notebook.ipynb` or `colab_notebook.ipynb` to the respective platform.
+
+---
+
+## Configuration
+
+Key parameters in `CONFIG`:
+
+```python
+CONFIG = {
+    'target_col': 'price',
+    'lat_col': 'lat',
+    'lon_col': 'long',
+    'image_size': 224,
+    'seed': 42,
+    'test_size': 0.2,
+    'batch_size': 32,
+    'epochs': 15,
+    'use_log_target': True,  # Log-transform target for better performance
+}
+```
+
+---
+
+## Model Details
+
+### XGBoost
+- `n_estimators`: 500
+- `max_depth`: 6
+- `learning_rate`: 0.05
+- `early_stopping_rounds`: 50
+- Log-transformed target with `np.log1p()` / `np.expm1()`
+
+### Hybrid Model
+- **CNN Branch**: Frozen ResNet18 backbone → 512 → 128 → 64
+- **Tabular Branch**: MLP with BatchNorm → 256 → 128 → 64
+- **Fusion Head**: Concatenated features → 64 → 32 → 1
+- **Training**: AdamW optimizer, ReduceLROnPlateau scheduler
 
 ---
 
 ## Outputs
 
-- `outputs/predictions.csv` with columns: `id`, `predicted_price`
-- Visualization outputs in `outputs/`:
-  - `price_distribution.png` - Price distribution analysis
-  - `correlation_heatmap.png` - Feature correlations
-  - `geospatial_analysis.png` - Property locations map
-  - `model_comparison.png` - XGBoost vs Hybrid comparison
-  - `gradcam_sample_*.png` - Grad-CAM explainability visualizations
-- During training, you’ll see epoch logs and best validation RMSE.
+| File | Description |
+|------|-------------|
+| `predictions.csv` | Test predictions (`id`, `predicted_price`) |
+| `xgb_model.joblib` | Saved XGBoost model |
+| `hybrid_model.pth` | Saved PyTorch Hybrid model |
+| `preprocessor.joblib` | Fitted preprocessing pipeline |
+| `model_comparison.png` | RMSE/R² comparison chart |
 
 ---
 
-## Notes / Tips
+## Usage Examples
 
-- If no API key is provided, the code uses a blank placeholder image (pipeline still runs).
-- To download images upfront for faster training, uncomment the `bulk_download_images(...)` lines in the script.
-- Increase `epochs` for better performance (e.g., 20-30).
+### Generate predictions
+```python
+import joblib
+import pandas as pd
+import numpy as np
+
+# Load model and preprocessor
+xgb_model = joblib.load('outputs/xgb_model.joblib')
+preprocessor = joblib.load('outputs/preprocessor.joblib')
+
+# Prepare test data
+test_df = pd.read_excel('data/test.xlsx')
+X_test = preprocessor.transform(test_df[feature_cols])
+
+# Predict (with log-transform)
+predictions = np.expm1(xgb_model.predict(X_test))
+```
+
+### Load Hybrid model
+```python
+import torch
+
+checkpoint = torch.load('outputs/hybrid_model.pth')
+model = HybridModel(tabular_dim=len(feature_cols))
+model.load_state_dict(checkpoint)
+```
+
+---
+
+## Notes
+
+- **XGBoost** is used for final predictions (better generalization on tabular data)
+- **Hybrid model** leverages satellite imagery for additional spatial context
+- If images are missing, a gray placeholder (128, 128, 128) is used
+- Set `use_log_target=True` for better performance on skewed price distributions
