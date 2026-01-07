@@ -1,0 +1,22 @@
+pandas
+numpy
+scikit-learn
+openpyxl
+pillow
+requests
+tqdm
+torch
+torchvision
+
+# Visualization
+matplotlib
+seaborn
+
+# Machine Learning
+xgboost
+
+# Image Processing
+opencv-python
+
+# Geospatial
+geopandas
